@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang='es'>
+<head>
+  <meta charset='UTF-8'>
+  <title>Cliente WebSocket - OpenShift Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #1E3A5F; display: flex; flex-direction: column; min-height: 100vh; }
+    .header { background: #E63946; color: white; padding: 16px 24px; }
+    .container { flex: 1; display: flex; }
+    .sidebar { width: 260px; background: #2B2D42; color: #EDF2F4; padding: 20px; font-size: 14px; }
+    .sidebar h3 { color: #A8DADC; margin-bottom: 12px; font-size: 13px; text-transform: uppercase; }
+    #status-dot { width:12px; height:12px; border-radius:50%; background:#E63946; display:inline-block; margin-right:8px; }
+    #status-dot.connected { background: #2ECC71; }
+    .chat-area { flex: 1; display: flex; flex-direction: column; background: #F1FAEE; }
+    #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .msg { padding: 10px 14px; border-radius: 8px; max-width: 75%; font-size: 14px; line-height: 1.4; }
+    .msg.sistema { background: #EBF5FB; color: #457B9D; align-self: center; font-style: italic; font-size: 12px; }
+    .msg.yo { background: #1E3A5F; color: white; align-self: flex-end; }
+    .msg.otro { background: white; border: 1px solid #BDC3C7; align-self: flex-start; }
+    .msg.bienvenida { background: #E63946; color: white; align-self: center; font-weight: bold; }
+    .msg .ts { font-size: 10px; opacity: 0.6; margin-top: 4px; }
+    .input-area { padding: 16px; background: white; border-top: 1px solid #BDC3C7; display: flex; gap: 8px; }
+    #msg-input { flex: 1; padding: 10px 14px; border: 1px solid #BDC3C7; border-radius: 6px; font-size: 14px; outline: none; }
+    button { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+    #btn-send { background: #1E3A5F; color: white; }
+    #btn-send:disabled { opacity: 0.4; cursor: default; }
+    #btn-connect { background: #2ECC71; color: white; width: 100%; margin-bottom: 8px; }
+    #btn-disconnect { background: #E63946; color: white; width: 100%; }
+    #url-input { width:100%; padding:8px; border:1px solid #555; background:#3D3F52; color:white; border-radius:4px; font-size:13px; margin-bottom:10px; }
+  </style>
+</head>
+<body>
+  <div class='header'><h1>Cliente WebSocket — OpenShift Demo</h1></div>
+  <div class='container'>
+    <div class='sidebar'>
+      <h3>Conexión</h3>
+      <input id='url-input' type='text' value='ws://localhost:8080' placeholder='wss://...' />
+      <button id='btn-connect' onclick='conectar()'>Conectar</button>
+      <button id='btn-disconnect' onclick='desconectar()'>Desconectar</button>
+      <hr style='border-color:#555; margin:16px 0'>
+      <h3>Estado</h3>
+      <p><span id='status-dot'></span><span id='status-text'>Desconectado</span></p>
+      <p style='margin-top:8px;font-size:12px;color:#A8DADC'>Mensajes enviados: <span id='cnt-sent'>0</span></p>
+      <p style='font-size:12px;color:#A8DADC'>Mensajes recibidos: <span id='cnt-recv'>0</span></p>
+    </div>
+    <div class='chat-area'>
+      <div id='messages'></div>
+      <div class='input-area'>
+        <input id='msg-input' type='text' placeholder='Escribe un mensaje...' onkeypress='enterSend(event)' />
+        <button id='btn-send' onclick='enviar()' disabled>Enviar</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    let ws = null;
+    let cntSent = 0, cntRecv = 0;
+
+    function conectar() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) return;
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        setEstado(true);
+        addMsg('sistema', 'Conexión establecida con el servidor');
+      };
+      ws.onmessage = (event) => {
+        cntRecv++;
+        document.getElementById('cnt-recv').textContent = cntRecv;
+        try {
+          const data = JSON.parse(event.data);
+          addMsg(data.tipo, data.mensaje || data.contenido, data.timestamp);
+        } catch {
+          addMsg('otro', event.data);
+        }
+      };
+      ws.onclose = () => {
+        setEstado(false);
+        addMsg('sistema', 'Conexión cerrada');
+      };
+      ws.onerror = () => addMsg('sistema', 'Error en la conexión WebSocket');
+    }
+
+    function desconectar() {
+      if (ws) { ws.close(); ws = null; }
+    }
+
+    function enviar() {
+      const input = document.getElementById('msg-input');
+      const texto = input.value.trim();
+      if (!texto || !ws) return;
+      ws.send(JSON.stringify({ texto }));
+      addMsg('yo', texto);
+      cntSent++;
+      document.getElementById('cnt-sent').textContent = cntSent;
+      input.value = '';
+    }
+
+    function enterSend(e) { if (e.key === 'Enter') enviar(); }
+
+    function setEstado(connected) {
+      const dot = document.getElementById('status-dot');
+      const txt = document.getElementById('status-text');
+      const btn = document.getElementById('btn-send');
+      dot.className = connected ? 'connected' : '';
+      txt.textContent = connected ? 'Conectado' : 'Desconectado';
+      btn.disabled = !connected;
+    }
+
+    function addMsg(tipo, texto, ts) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + (tipo === 'mensaje' ? 'otro' : tipo);
+      const hora = ts ? new Date(ts).toLocaleTimeString() : new Date().toLocaleTimeString();
+      const cuerpo = document.createElement('div');
+      cuerpo.textContent = texto;
+      const marca = document.createElement('div');
+      marca.className = 'ts';
+      marca.textContent = hora;
+      div.appendChild(cuerpo);
+      div.appendChild(marca);
+      const msgs = document.getElementById('messages');
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+  </script>
+</body>
+</html>
